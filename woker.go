@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
+// JobStatus job's status
+// success, wait, fail, progress
 type JobStatus string
-
-var ctx = context.Background()
 
 const (
 	SUCCESS  JobStatus = "success"
@@ -22,8 +22,12 @@ const (
 	PROGRESS JobStatus = "progress"
 )
 
+// Redis context
+var ctx = context.Background()
+
 const DefaultWorker = "default"
 
+// Job job's struct
 type Job struct {
 	UUID       uuid.UUID              `json:"uuid"`
 	WorkerName string                 `json:"worker_name"`
@@ -35,6 +39,7 @@ type Job struct {
 	Meta       map[string]interface{} `json:"meta"`
 }
 
+// Marshal to json
 func (j *Job) Marshal() (string, error) {
 	marshal, err := json.Marshal(j)
 	if err != nil {
@@ -44,6 +49,7 @@ func (j *Job) Marshal() (string, error) {
 	return string(marshal), nil
 }
 
+// UnMarshal json to Job
 func (j *Job) UnMarshal(jsonStr string) error {
 	err := json.Unmarshal([]byte(jsonStr), &j)
 	if err != nil {

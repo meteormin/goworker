@@ -2,7 +2,8 @@ package goworker_test
 
 import (
 	"context"
-	"github.com/miniyus/gofiber/pkg/worker"
+	worker "github.com/miniyus/goworker"
+	"github.com/redis/go-redis/v9"
 	"log"
 	"testing"
 	"time"
