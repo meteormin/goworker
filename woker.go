@@ -74,6 +74,7 @@ type Queue interface {
 	Dequeue() (*Job, error)
 	Clear()
 	Count() int
+	Next() *Job
 }
 
 type JobQueue struct {
@@ -123,6 +124,14 @@ func (q *JobQueue) Clear() {
 
 func (q *JobQueue) Count() int {
 	return len(q.queue)
+}
+
+func (q *JobQueue) Next() *Job {
+	if len(q.queue) == 0 {
+		return nil
+	}
+
+	return &q.queue[0]
 }
 
 type Worker interface {
@@ -269,38 +278,34 @@ func (w *JobWorker) routine() {
 	if w.logger != nil {
 		w.logger.Infof("start routine(worker: %s):", w.Name)
 	}
+
 	for {
+		w.redisClient = w.redis()
+		next := w.queue.Next()
+		key := fmt.Sprintf("%s.%s", w.Name, next.JobId)
+		convJob, err := w.getJob(key)
+		if err != nil {
+			log.Println(err)
+			if w.logger != nil {
+				w.logger.Error(err)
+			}
+		}
+
+		if convJob != nil && convJob.Status != SUCCESS {
+			continue
+		}
+
 		jobChan, err := w.queue.Dequeue()
 		if err != nil {
-			log.Print(err)
+			log.Println(err)
 			continue
 		}
 
 		w.jobChan <- *jobChan
+
 		select {
 		case job := <-w.jobChan:
 			w.redisClient = w.redis()
-			key := fmt.Sprintf("%s.%s", w.Name, job.JobId)
-			convJob, err := w.getJob(key)
-			if err != nil {
-				log.Println(err)
-				if w.logger != nil {
-					w.logger.Error(err)
-				}
-
-			}
-
-			if convJob != nil && convJob.Status != SUCCESS {
-				err = w.queue.Enqueue(job)
-				if err != nil {
-					log.Println(err)
-					if w.logger != nil {
-						w.logger.Error(err)
-					}
-				}
-				continue
-			}
-
 			w.work(&job)
 			w.saveJob(key, job)
 		case <-w.quitChan:
@@ -308,7 +313,6 @@ func (w *JobWorker) routine() {
 			if w.logger != nil {
 				w.logger.Infof("worker %s stopping\n", w.Name)
 			}
-
 			return
 		}
 	}
