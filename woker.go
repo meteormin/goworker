@@ -282,6 +282,10 @@ func (w *JobWorker) routine() {
 	for {
 		w.redisClient = w.redis()
 		next := w.queue.Next()
+		if next == nil {
+			continue
+		}
+
 		key := fmt.Sprintf("%s.%s", w.Name, next.JobId)
 		convJob, err := w.getJob(key)
 		if err != nil {
