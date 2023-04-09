@@ -276,8 +276,6 @@ func (w *JobWorker) work(job *Job) {
 			w.logger.Infof("end job: %s", jsonJob)
 		}
 	}()
-
-	time.Sleep(w.delay)
 }
 
 func (w *JobWorker) routine() {
@@ -329,6 +327,8 @@ func (w *JobWorker) routine() {
 			}
 			return
 		}
+
+		time.Sleep(w.delay)
 	}
 }
 
