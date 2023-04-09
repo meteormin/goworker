@@ -287,32 +287,37 @@ func (w *JobWorker) routine() {
 	}
 
 	for {
+		canWork := true
 		w.redisClient = w.redis()
 		next := w.queue.Next()
 		if next == nil {
-			continue
+			canWork = false
 		}
 
-		key := fmt.Sprintf("%s.%s", w.Name, next.JobId)
-		convJob, err := w.getJob(key)
-		if err != nil {
-			log.Println(err)
-			if w.logger != nil {
-				w.logger.Error(err)
+		if canWork {
+			key := fmt.Sprintf("%s.%s", w.Name, next.JobId)
+			convJob, err := w.getJob(key)
+			if err != nil {
+				log.Println(err)
+				if w.logger != nil {
+					w.logger.Error(err)
+				}
+			}
+
+			if convJob != nil && convJob.Status != SUCCESS {
+				canWork = false
 			}
 		}
 
-		if convJob != nil && convJob.Status != SUCCESS {
-			continue
-		}
+		if canWork {
+			jobChan, err := w.queue.Dequeue()
+			if err != nil {
+				log.Println(err)
 
-		jobChan, err := w.queue.Dequeue()
-		if err != nil {
-			log.Println(err)
-			continue
+			} else {
+				w.jobChan <- *jobChan
+			}
 		}
-
-		w.jobChan <- *jobChan
 
 		select {
 		case job := <-w.jobChan:
@@ -359,7 +364,7 @@ func (w *JobWorker) Stop() {
 		return
 	}
 
-	go w.quitRoutine()
+	w.quitRoutine()
 }
 
 func (w *JobWorker) AddJob(job Job) error {

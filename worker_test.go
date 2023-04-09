@@ -145,7 +145,7 @@ func TestJobDispatcher(t *testing.T) {
 			break
 		}
 	}
-	time.Sleep(time.Second * 5)
+	time.Sleep(time.Second)
 	if loopCount > 4 {
 		t.Error("over limit loop counts...")
 	}
@@ -159,4 +159,9 @@ func TestJob_UnMarshal(t *testing.T) {
 		t.Error(err)
 	}
 	log.Print(job)
+}
+
+func TestJobDispatcher_Stop(t *testing.T) {
+	dispatcher.GetWorkers()[0].Stop()
+	dispatcher.Status().Print()
 }
