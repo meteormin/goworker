@@ -42,6 +42,7 @@ func TestJobDispatcher(t *testing.T) {
 	// Dispatch 메서드는 작업 id와 클로저를 받아 입력 받은 id로 작업을 생성하여, 클로저에 작성된 로직을 수행한다.
 	err := dispatcher.Dispatch("t1", func(job *worker.Job) error {
 		log.Printf("id %s status %s", job.JobId, job.Status)
+		time.Sleep(time.Second)
 		return nil
 	})
 
@@ -51,6 +52,7 @@ func TestJobDispatcher(t *testing.T) {
 
 	err = dispatcher.Dispatch("t2", func(job *worker.Job) error {
 		log.Printf("id %s status %s", job.JobId, job.Status)
+		time.Sleep(time.Second)
 		return nil
 	})
 
@@ -94,8 +96,12 @@ func TestJobDispatcher(t *testing.T) {
 		return nil
 	})
 
+	shareData := 0
+
 	err = dispatcher.Dispatch("t3", func(job *worker.Job) error {
 		log.Printf("id %s status %s", job.JobId, job.Status)
+		job.Meta["TEST_1"] = shareData + 1
+		time.Sleep(time.Second * 3)
 		return nil
 	})
 
@@ -105,6 +111,8 @@ func TestJobDispatcher(t *testing.T) {
 
 	err = dispatcher.Dispatch("t3", func(job *worker.Job) error {
 		log.Printf("id %s status %s", job.JobId, job.Status)
+		job.Meta["TEST_2"] = shareData + 1
+		time.Sleep(time.Second)
 		return nil
 	})
 
@@ -137,7 +145,7 @@ func TestJobDispatcher(t *testing.T) {
 			break
 		}
 	}
-
+	time.Sleep(time.Second * 5)
 	if loopCount > 4 {
 		t.Error("over limit loop counts...")
 	}

@@ -66,6 +66,7 @@ func newJob(workerName string, jobId string, closure func(job *Job) error) Job {
 		Closure:    closure,
 		Status:     WAIT,
 		CreatedAt:  time.Now(),
+		Meta:       map[string]interface{}{},
 	}
 }
 
@@ -221,56 +222,62 @@ func (w *JobWorker) getJob(key string) (*Job, error) {
 }
 
 func (w *JobWorker) work(job *Job) {
+	key := fmt.Sprintf("%s.%s", w.Name, job.JobId)
+	w.redisClient = w.redis()
 	job.Status = PROGRESS
+	w.saveJob(key, *job)
 
-	log.Printf("worker %s, job %s", w.Name, job.JobId)
-	if w.logger != nil {
-		w.logger.Infof("job working... worker: %s, job: %s", w.Name, job.JobId)
-	}
-
-	if w.beforeJob != nil {
-		bErr := w.beforeJob(job)
-		if bErr != nil {
-			log.Print(bErr)
-			if w.logger != nil {
-				w.logger.Error(bErr)
-			}
-		}
-	}
-
-	err := job.Closure(job)
-	if err != nil {
-		job.Status = FAIL
-	} else {
-		job.Status = SUCCESS
-	}
-
-	job.UpdatedAt = time.Now()
-
-	if w.afterJob != nil {
-		aErr := w.afterJob(job, err)
-		if aErr != nil {
-			log.Print(aErr)
-			if w.logger != nil {
-				w.logger.Error(aErr)
-			}
-		}
-	}
-
-	jsonJob, err := job.Marshal()
-	if err != nil {
-		log.Print(err)
+	go func() {
+		log.Printf("worker %s, job %s", w.Name, job.JobId)
 		if w.logger != nil {
-			w.logger.Error(err)
+			w.logger.Infof("job working... worker: %s, job: %s", w.Name, job.JobId)
 		}
-	}
 
-	log.Printf("end job: %s", jsonJob)
-	if w.logger != nil {
-		w.logger.Infof("end job: %s", jsonJob)
-	}
+		if w.beforeJob != nil {
+			bErr := w.beforeJob(job)
+			if bErr != nil {
+				log.Print(bErr)
+				if w.logger != nil {
+					w.logger.Error(bErr)
+				}
+			}
+		}
 
-	time.Sleep(w.delay)
+		err := job.Closure(job)
+		if err != nil {
+			job.Status = FAIL
+		} else {
+			job.Status = SUCCESS
+		}
+
+		job.UpdatedAt = time.Now()
+		w.saveJob(key, *job)
+
+		if w.afterJob != nil {
+			aErr := w.afterJob(job, err)
+			if aErr != nil {
+				log.Print(aErr)
+				if w.logger != nil {
+					w.logger.Error(aErr)
+				}
+			}
+		}
+
+		jsonJob, err := job.Marshal()
+		if err != nil {
+			log.Print(err)
+			if w.logger != nil {
+				w.logger.Error(err)
+			}
+		}
+
+		log.Printf("end job: %s", jsonJob)
+		if w.logger != nil {
+			w.logger.Infof("end job: %s", jsonJob)
+		}
+
+		time.Sleep(w.delay)
+	}()
 }
 
 func (w *JobWorker) routine() {
@@ -309,9 +316,7 @@ func (w *JobWorker) routine() {
 
 		select {
 		case job := <-w.jobChan:
-			w.redisClient = w.redis()
 			w.work(&job)
-			w.saveJob(key, job)
 		case <-w.quitChan:
 			log.Printf("worker %s stopping\n", w.Name)
 			if w.logger != nil {
