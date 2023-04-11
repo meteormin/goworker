@@ -76,6 +76,7 @@ type Queue interface {
 	Clear()
 	Count() int
 	Next() *Job
+	Jobs() []Job
 }
 
 type JobQueue struct {
@@ -135,6 +136,10 @@ func (q *JobQueue) Next() *Job {
 	return &q.queue[0]
 }
 
+func (q *JobQueue) Jobs() []Job {
+	return q.queue
+}
+
 type Worker interface {
 	GetName() string
 	Run()
@@ -143,6 +148,9 @@ type Worker interface {
 	IsRunning() bool
 	MaxJobCount() int
 	JobCount() int
+	MaxPool() int
+	Pool() int
+	Queue() Queue
 	BeforeJob(fn func(j *Job) error)
 	AfterJob(fn func(j *Job, err error) error)
 	OnAddJob(fn func(j *Job) error)
@@ -155,6 +163,8 @@ type JobWorker struct {
 	quitChan    chan bool
 	redis       func() *redis.Client
 	maxJobCount int
+	maxPool     int
+	pool        int
 	isRunning   bool
 	beforeJob   func(j *Job) error
 	afterJob    func(j *Job, err error) error
@@ -168,6 +178,7 @@ type Config struct {
 	Name        string
 	Redis       func() *redis.Client
 	MaxJobCount int
+	MaxPool     int
 	BeforeJob   func(j *Job) error
 	AfterJob    func(j *Job, err error) error
 	Delay       time.Duration
@@ -182,6 +193,8 @@ func NewWorker(cfg Config) Worker {
 		quitChan:    make(chan bool),
 		redis:       cfg.Redis,
 		maxJobCount: cfg.MaxJobCount,
+		maxPool:     cfg.MaxPool,
+		pool:        0,
 		beforeJob:   cfg.BeforeJob,
 		afterJob:    cfg.AfterJob,
 		redisClient: cfg.Redis(),
@@ -226,6 +239,7 @@ func (w *JobWorker) work(job *Job) {
 	w.redisClient = w.redis()
 	job.Status = PROGRESS
 	w.saveJob(key, *job)
+	w.pool++
 
 	go func() {
 		log.Printf("worker %s, job %s", w.Name, job.JobId)
@@ -275,6 +289,8 @@ func (w *JobWorker) work(job *Job) {
 		if w.logger != nil {
 			w.logger.Infof("end job: %s", jsonJob)
 		}
+
+		w.pool--
 	}()
 }
 
@@ -289,6 +305,10 @@ func (w *JobWorker) routine() {
 		w.redisClient = w.redis()
 		next := w.queue.Next()
 		if next == nil {
+			canWork = false
+		}
+
+		if w.pool >= w.maxPool {
 			canWork = false
 		}
 
@@ -311,7 +331,6 @@ func (w *JobWorker) routine() {
 			jobChan, err := w.queue.Dequeue()
 			if err != nil {
 				log.Println(err)
-
 			} else {
 				w.jobChan <- *jobChan
 			}
@@ -397,6 +416,18 @@ func (w *JobWorker) MaxJobCount() int {
 
 func (w *JobWorker) JobCount() int {
 	return w.queue.Count()
+}
+
+func (w *JobWorker) MaxPool() int {
+	return w.maxPool
+}
+
+func (w *JobWorker) Pool() int {
+	return w.pool
+}
+
+func (w *JobWorker) Queue() Queue {
+	return w.queue
 }
 
 func (w *JobWorker) OnAddJob(fn func(j *Job) error) {

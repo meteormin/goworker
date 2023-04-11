@@ -54,6 +54,7 @@ type JobDispatcher struct {
 type Option struct {
 	Name        string
 	MaxJobCount int
+	MaxPool     int
 	BeforeJob   func(j *Job) error
 	AfterJob    func(j *Job, err error) error
 	Delay       time.Duration
@@ -71,6 +72,7 @@ var defaultWorkerOption = []Option{
 	{
 		Name:        DefaultWorker,
 		MaxJobCount: 10,
+		MaxPool:     1,
 	},
 }
 
@@ -83,10 +85,19 @@ func NewDispatcher(opt DispatcherOption) Dispatcher {
 	}
 
 	for _, o := range opt.WorkerOptions {
+		if o.MaxJobCount == 0 {
+			o.MaxJobCount = 10
+		}
+
+		if o.MaxPool == 0 {
+			o.MaxPool = 1
+		}
+
 		workers = append(workers, NewWorker(Config{
 			o.Name,
 			opt.Redis,
 			o.MaxJobCount,
+			o.MaxPool,
 			o.BeforeJob,
 			o.AfterJob,
 			o.Delay,
@@ -103,10 +114,19 @@ func NewDispatcher(opt DispatcherOption) Dispatcher {
 
 // AddWorker add worker in runtime
 func (d *JobDispatcher) AddWorker(option Option) {
+	if option.MaxJobCount == 0 {
+		option.MaxJobCount = 10
+	}
+
+	if option.MaxPool == 0 {
+		option.MaxPool = 1
+	}
+
 	d.workers = append(d.workers, NewWorker(Config{
 		option.Name,
 		d.redis,
 		option.MaxJobCount,
+		option.MaxPool,
 		option.BeforeJob,
 		option.AfterJob,
 		option.Delay,
@@ -279,6 +299,9 @@ type StatusWorkerInfo struct {
 	IsRunning   bool   `json:"is_running"`
 	JobCount    int    `json:"job_count"`
 	MaxJobCount int    `json:"max_job_count"`
+	MaxPool     int    `json:"max_pool"`
+	Pool        int    `json:"pool"`
+	Queue       []Job  `json:"queue"`
 }
 
 type StatusInfo struct {
@@ -310,6 +333,9 @@ func (d *JobDispatcher) Status() *StatusInfo {
 			IsRunning:   w.IsRunning(),
 			JobCount:    w.JobCount(),
 			MaxJobCount: w.MaxJobCount(),
+			MaxPool:     w.MaxPool(),
+			Pool:        w.Pool(),
+			Queue:       w.Queue().Jobs(),
 		}
 
 		workers = append(workers, workerInfo)
