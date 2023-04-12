@@ -143,9 +143,11 @@ func (q *JobQueue) Jobs() []Job {
 type Worker interface {
 	GetName() string
 	Run()
+	Pending()
 	Stop()
 	AddJob(job Job) error
 	IsRunning() bool
+	IsPending() bool
 	MaxJobCount() int
 	JobCount() int
 	MaxPool() int
@@ -160,12 +162,14 @@ type JobWorker struct {
 	Name        string
 	queue       Queue
 	jobChan     chan *Job
+	pendChan    chan bool
 	quitChan    chan bool
 	redis       func() *redis.Client
 	maxJobCount int
 	maxPool     int
 	pool        int
 	isRunning   bool
+	isPending   bool
 	beforeJob   func(j *Job) error
 	afterJob    func(j *Job, err error) error
 	onAddJob    func(j *Job) error
@@ -329,21 +333,22 @@ func (w *JobWorker) routine() {
 			}
 		}
 
-		if canWork {
-			jobChan, err := w.queue.Dequeue()
-			if err != nil {
-				log.Println(err)
-			} else {
-				w.jobChan <- jobChan
-			}
+		jobChan, err := w.queue.Dequeue()
+		if err != nil {
+			log.Println(err)
 		} else {
-			w.jobChan <- next
+			w.jobChan <- jobChan
 		}
 
 		select {
 		case job := <-w.jobChan:
 			if canWork {
 				w.work(job)
+			} else {
+				err = w.queue.Enqueue(*job)
+				if err != nil {
+					log.Println(err)
+				}
 			}
 		case <-w.quitChan:
 			log.Printf("worker %s stopping\n", w.Name)
@@ -351,11 +356,22 @@ func (w *JobWorker) routine() {
 				w.logger.Infof("worker %s stopping\n", w.Name)
 			}
 			return
+		case <-w.pendChan:
+			log.Printf("worker %s pending\n", w.Name)
+			if w.logger != nil {
+				w.logger.Infof("worker %s pending\n", w.Name)
+			}
+			return
 		default:
 		}
 
 		time.Sleep(w.delay)
 	}
+}
+
+func (w *JobWorker) pendingRoutine() {
+	w.pendChan <- true
+	w.isPending = true
 }
 
 func (w *JobWorker) quitRoutine() {
@@ -379,6 +395,18 @@ func (w *JobWorker) Run() {
 	w.isRunning = true
 
 	go w.routine()
+}
+
+func (w *JobWorker) Pending() {
+	if !w.isRunning {
+		log.Printf("%s worker is not running", w.Name)
+		if w.logger != nil {
+			w.logger.Infof("%s worker is not running", w.Name)
+		}
+		return
+	}
+
+	w.pendingRoutine()
 }
 
 func (w *JobWorker) Stop() {
@@ -410,11 +438,20 @@ func (w *JobWorker) AddJob(job Job) error {
 		return err
 	}
 
+	if w.isPending {
+		w.routine()
+		w.isPending = false
+	}
+
 	return nil
 }
 
 func (w *JobWorker) IsRunning() bool {
 	return w.isRunning
+}
+
+func (w *JobWorker) IsPending() bool {
+	return w.isPending
 }
 
 func (w *JobWorker) MaxJobCount() int {
