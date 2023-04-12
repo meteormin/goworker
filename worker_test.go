@@ -141,7 +141,7 @@ func TestJobDispatcher(t *testing.T) {
 		time.Sleep(time.Second)
 
 		loopCount++
-		if loopCount >= 10 {
+		if loopCount >= 30 {
 			break
 		}
 	}
@@ -159,6 +159,34 @@ func TestJob_UnMarshal(t *testing.T) {
 		t.Error(err)
 	}
 	log.Print(job)
+}
+
+func TestJobDispatcher_Stress(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		err := dispatcher.Dispatch("1", func(j *worker.Job) error {
+			log.Println(j)
+			return nil
+		})
+		if err != nil {
+			break
+		}
+	}
+	stop := false
+	for {
+		if stop {
+			break
+		}
+		workers := dispatcher.GetWorkers()
+		for _, w := range workers {
+			if w.GetName() == "default" && len(w.Queue().Jobs()) == 0 {
+				stop = true
+			} else {
+				log.Println(w.Queue().Jobs())
+			}
+		}
+		time.Sleep(time.Second)
+	}
+
 }
 
 func TestJobDispatcher_Stop(t *testing.T) {

@@ -242,9 +242,9 @@ func (w *JobWorker) work(job *Job) {
 	w.pool++
 
 	go func() {
-		log.Printf("worker %s, job %s", w.Name, job.JobId)
+		log.Printf("start job: %s.%s", job.WorkerName, job.JobId)
 		if w.logger != nil {
-			w.logger.Infof("job working... worker: %s, job: %s", w.Name, job.JobId)
+			w.logger.Infof("start job: %s.%s", job.WorkerName, job.JobId)
 		}
 
 		if w.beforeJob != nil {
@@ -306,10 +306,12 @@ func (w *JobWorker) routine() {
 		next := w.queue.Next()
 		if next == nil {
 			canWork = false
+			log.Printf("%s worker queue is empty", w.Name)
 		}
 
 		if w.pool >= w.maxPool {
 			canWork = false
+			log.Printf("%s worker pool is full", w.Name)
 		}
 
 		if canWork {
@@ -324,6 +326,7 @@ func (w *JobWorker) routine() {
 
 			if convJob != nil && convJob.Status != SUCCESS {
 				canWork = false
+				log.Printf("%s worker job(%s) is not complete...", w.Name, convJob.JobId)
 			}
 		}
 
@@ -345,6 +348,7 @@ func (w *JobWorker) routine() {
 				w.logger.Infof("worker %s stopping\n", w.Name)
 			}
 			return
+		default:
 		}
 
 		time.Sleep(w.delay)
