@@ -159,7 +159,7 @@ type Worker interface {
 type JobWorker struct {
 	Name        string
 	queue       Queue
-	jobChan     chan Job
+	jobChan     chan *Job
 	quitChan    chan bool
 	redis       func() *redis.Client
 	maxJobCount int
@@ -189,7 +189,7 @@ func NewWorker(cfg Config) Worker {
 	return &JobWorker{
 		Name:        cfg.Name,
 		queue:       NewQueue(cfg.MaxJobCount),
-		jobChan:     make(chan Job, cfg.MaxJobCount),
+		jobChan:     make(chan *Job, cfg.MaxJobCount),
 		quitChan:    make(chan bool),
 		redis:       cfg.Redis,
 		maxJobCount: cfg.MaxJobCount,
@@ -334,16 +334,16 @@ func (w *JobWorker) routine() {
 			if err != nil {
 				log.Println(err)
 			} else {
-				w.jobChan <- *jobChan
+				w.jobChan <- jobChan
 			}
 		} else {
-			w.jobChan <- *next
+			w.jobChan <- next
 		}
 
 		select {
 		case job := <-w.jobChan:
 			if canWork {
-				w.work(&job)
+				w.work(job)
 			}
 		case <-w.quitChan:
 			log.Printf("worker %s stopping\n", w.Name)
