@@ -306,7 +306,6 @@ func (w *JobWorker) routine() {
 		next := w.queue.Next()
 		if next == nil {
 			canWork = false
-			log.Printf("%s worker queue is empty", w.Name)
 		}
 
 		if w.pool >= w.maxPool {
@@ -337,11 +336,15 @@ func (w *JobWorker) routine() {
 			} else {
 				w.jobChan <- *jobChan
 			}
+		} else {
+			w.jobChan <- *next
 		}
 
 		select {
 		case job := <-w.jobChan:
-			w.work(&job)
+			if canWork {
+				w.work(&job)
+			}
 		case <-w.quitChan:
 			log.Printf("worker %s stopping\n", w.Name)
 			if w.logger != nil {
