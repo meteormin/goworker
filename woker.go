@@ -147,6 +147,7 @@ type OnAddJob = func(j *Job) error
 type Worker interface {
 	GetName() string
 	Run()
+	Resume()
 	Pending()
 	Stop()
 	AddJob(job Job) error
@@ -199,6 +200,7 @@ func NewWorker(cfg Config) Worker {
 		Name:        cfg.Name,
 		queue:       NewQueue(cfg.MaxJobCount),
 		jobChan:     make(chan *Job, cfg.MaxJobCount),
+		pendChan:    make(chan bool),
 		quitChan:    make(chan bool),
 		redis:       cfg.Redis,
 		maxJobCount: cfg.MaxJobCount,
@@ -349,7 +351,11 @@ func (w *JobWorker) routine() {
 			jobChan = j
 		}
 
-		w.jobChan <- jobChan
+		if next == nil && w.isRunning && !w.isPending {
+			w.Pending()
+		} else if w.isRunning && !w.isPending {
+			w.jobChan <- jobChan
+		}
 
 		select {
 		case job := <-w.jobChan:
@@ -375,14 +381,18 @@ func (w *JobWorker) routine() {
 	}
 }
 
+func (w *JobWorker) resumeRoutine() {
+	w.isPending = false
+}
+
 func (w *JobWorker) pendingRoutine() {
-	w.pendChan <- true
 	w.isPending = true
+	w.pendChan <- true
 }
 
 func (w *JobWorker) quitRoutine() {
-	w.quitChan <- true
 	w.isRunning = false
+	w.quitChan <- true
 }
 
 func (w *JobWorker) GetName() string {
@@ -403,6 +413,19 @@ func (w *JobWorker) Run() {
 	go w.routine()
 }
 
+func (w *JobWorker) Resume() {
+	if !w.isRunning {
+		log.Printf("%s worker is not running", w.Name)
+		if w.logger != nil {
+			w.logger.Infof("%s worker is not running", w.Name)
+		}
+		return
+	}
+
+	go w.resumeRoutine()
+	go w.routine()
+}
+
 func (w *JobWorker) Pending() {
 	if !w.isRunning {
 		log.Printf("%s worker is not running", w.Name)
@@ -412,7 +435,7 @@ func (w *JobWorker) Pending() {
 		return
 	}
 
-	w.pendingRoutine()
+	go w.pendingRoutine()
 }
 
 func (w *JobWorker) Stop() {
@@ -424,7 +447,11 @@ func (w *JobWorker) Stop() {
 		return
 	}
 
-	w.quitRoutine()
+	go w.quitRoutine()
+
+	if w.isPending {
+		w.Resume()
+	}
 }
 
 func (w *JobWorker) AddJob(job Job) error {
@@ -445,8 +472,7 @@ func (w *JobWorker) AddJob(job Job) error {
 	}
 
 	if w.isPending {
-		w.routine()
-		w.isPending = false
+		w.Resume()
 	}
 
 	return nil

@@ -331,6 +331,7 @@ func (d *JobDispatcher) Stop(workerNames ...string) {
 type StatusWorkerInfo struct {
 	Name        string `json:"name"`
 	IsRunning   bool   `json:"is_running"`
+	IsPending   bool   `json:"is_pending"`
 	JobCount    int    `json:"job_count"`
 	MaxJobCount int    `json:"max_job_count"`
 	MaxPool     int    `json:"max_pool"`
@@ -365,6 +366,7 @@ func (d *JobDispatcher) Status() *StatusInfo {
 		workerInfo := StatusWorkerInfo{
 			Name:        w.GetName(),
 			IsRunning:   w.IsRunning(),
+			IsPending:   w.IsPending(),
 			JobCount:    w.JobCount(),
 			MaxJobCount: w.MaxJobCount(),
 			MaxPool:     w.MaxPool(),

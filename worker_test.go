@@ -207,12 +207,30 @@ func TestJobDispatcher_Stress(t *testing.T) {
 				log.Println(w.Queue().Jobs())
 			}
 		}
-		time.Sleep(time.Second)
+		time.Sleep(time.Millisecond * 3)
 	}
 
 }
 
 func TestJobDispatcher_Stop(t *testing.T) {
-	dispatcher.GetWorkers()[0].Stop()
 	dispatcher.Status().Print()
+	time.Sleep(time.Second * 10)
+
+	dispatcher.Status().Print()
+	_ = dispatcher.Dispatch("STOP!", func(j *worker.Job) error {
+		log.Println("STOP?")
+		return nil
+	})
+	time.Sleep(time.Second * 10)
+
+	dispatcher.Stop()
+	for {
+		isRun := dispatcher.GetWorkers()[0].IsRunning()
+		if !isRun {
+			break
+		}
+		time.Sleep(time.Second)
+	}
+	time.Sleep(time.Second * 3)
+	log.Println("the end...")
 }
