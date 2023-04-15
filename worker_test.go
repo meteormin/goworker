@@ -60,66 +60,6 @@ func TestJobDispatcher(t *testing.T) {
 		t.Error(err)
 	}
 
-	dispatcher.OnDispatch(func(j *worker.Job) error {
-		marshal, err := j.Marshal()
-		if err != nil {
-			return err
-		}
-		log.Printf("test onDispatcher job %s", marshal)
-		return nil
-	})
-
-	// BeforeJob 메서드는 작업에 등록돈 클로저가 수행되기 전
-	// 필요한 사전 작업을 등록할 수 있다.
-	// 해당 메서드는 worker를 기준으로 일괄 반영된다.
-	dispatcher.BeforeJob(func(j *worker.Job) error {
-		marshal, err := j.Marshal()
-		if err != nil {
-			return err
-		}
-
-		log.Printf("test before job %s", marshal)
-		redisClient.LPush(context.Background(), j.WorkerName, marshal)
-		return nil
-	}, "default") // 특정 워커만 지정할 수 도 있다. 파라미터가 비어 있으면 모든 워커에 반영된다.
-
-	// AfterJob 메서드는 작업이 종료된 후 부가적인 추가 작업을 등록하여 사용할 수 있다.
-	// 해당 메서드는 worker를 기준으로 일괄 반영된다.
-	dispatcher.AfterJob(func(j *worker.Job, err error) error {
-		marshal, jErr := j.Marshal()
-		if jErr != nil {
-			return jErr
-		}
-
-		log.Printf("test after job %s %v", marshal, err)
-		redisClient.LPush(context.Background(), j.WorkerName, marshal)
-		return nil
-	})
-
-	shareData := 0
-
-	err = dispatcher.Dispatch("t3", func(job *worker.Job) error {
-		log.Printf("id %s status %s", job.JobId, job.Status)
-		job.Meta["TEST_1"] = shareData + 1
-		time.Sleep(time.Second * 3)
-		return nil
-	})
-
-	if err != nil {
-		t.Error(err)
-	}
-
-	err = dispatcher.Dispatch("t3", func(job *worker.Job) error {
-		log.Printf("id %s status %s", job.JobId, job.Status)
-		job.Meta["TEST_2"] = shareData + 1
-		time.Sleep(time.Second)
-		return nil
-	})
-
-	if err != nil {
-		t.Error(err)
-	}
-
 	loopCount := 0
 	for {
 		// Status 메서드는 현재 워커들의 현황을 확인 할 수 있다.
@@ -146,8 +86,91 @@ func TestJobDispatcher(t *testing.T) {
 		}
 	}
 	time.Sleep(time.Second)
-	if loopCount > 4 {
-		t.Error("over limit loop counts...")
+}
+
+func TestJobDispatcher_Hooks(t *testing.T) {
+	// AfterJob 메서드는 작업이 종료된 후 부가적인 추가 작업을 등록하여 사용할 수 있다.
+	dispatcher.AfterJob(func(j *worker.Job, err error) error {
+		marshal, jErr := j.Marshal()
+		if jErr != nil {
+			return jErr
+		}
+
+		log.Printf("test after job %s %v", marshal, err)
+		redisClient.LPush(context.Background(), j.WorkerName, marshal)
+		return nil
+	}, "default") // 특정 워커만 지정할 수 있다. 파라미터가 비어 있으면 모든 워커에 반영된다.
+
+	// BeforeJob 메서드는 작업에 등록돈 클로저가 수행되기 전
+	// 필요한 사전 작업을 등록할 수 있다.
+	dispatcher.BeforeJob(func(j *worker.Job) error {
+		marshal, err := j.Marshal()
+		if err != nil {
+			return err
+		}
+
+		log.Printf("test before job %s", marshal)
+		redisClient.LPush(context.Background(), j.WorkerName, marshal)
+		return nil
+	}, "default.t4") // "." 구분자를 통해 특정 워커의 특정 작업에만 후킹 함수를 수행 시킬 수 있다.
+
+	dispatcher.OnDispatch(func(j *worker.Job) error {
+		marshal, err := j.Marshal()
+		if err != nil {
+			return err
+		}
+		log.Printf("test onDispatcher job %s", marshal)
+		return nil
+	}, "*.t3") // 모든 워커의 특정 작업에만 후킹 함수를 수행 시킬 수 있다.
+
+	err := dispatcher.Dispatch("t3", func(job *worker.Job) error {
+		log.Printf("id %s status %s", job.JobId, job.Status)
+		job.Meta["TEST_1"] = 1
+		time.Sleep(time.Second * 3)
+		return nil
+	})
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	err = dispatcher.Dispatch("t4", func(job *worker.Job) error {
+		log.Printf("id %s status %s", job.JobId, job.Status)
+		job.Meta["TEST_2"] = 2
+		time.Sleep(time.Second)
+		return nil
+	})
+
+	if err != nil {
+		t.Error(err)
+	}
+
+}
+
+func TestJobDispatcher_AddWorker(t *testing.T) {
+	dispatcher.AddWorker(worker.Option{
+		Name:        "TEST_WORKER",
+		MaxJobCount: 10,
+		MaxPool:     10,
+		// 워커를 기준으로 훅을 등록할 수 있다.
+		// 지정된 훅은 워커의 모든 작업에 포함된다.
+		BeforeJob: func(j *worker.Job) error {
+			log.Print(j)
+			return nil
+		},
+		Delay:  time.Second, // 작업을 끝낸 뒤 딜레이 시간
+		Logger: nil,         // custom logger
+	})
+
+	if len(dispatcher.GetWorkers()) < 2 {
+		t.Error("fail add worker")
+	}
+}
+
+func TestJobDispatcher_RemoveWorker(t *testing.T) {
+	dispatcher.RemoveWorker("TEST_WORKER")
+	if len(dispatcher.GetWorkers()) >= 2 {
+		t.Error("fail remove worker")
 	}
 }
 

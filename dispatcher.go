@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/redis/go-redis/v9"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -57,6 +58,7 @@ type Option struct {
 	MaxPool     int
 	BeforeJob   func(j *Job) error
 	AfterJob    func(j *Job, err error) error
+	OnAddJob    func(j *Job) error
 	Delay       time.Duration
 	Logger      Logger
 }
@@ -100,6 +102,7 @@ func NewDispatcher(opt DispatcherOption) Dispatcher {
 			o.MaxPool,
 			o.BeforeJob,
 			o.AfterJob,
+			o.OnAddJob,
 			o.Delay,
 			o.Logger,
 		}))
@@ -129,6 +132,7 @@ func (d *JobDispatcher) AddWorker(option Option) {
 		option.MaxPool,
 		option.BeforeJob,
 		option.AfterJob,
+		option.OnAddJob,
 		option.Delay,
 		option.Logger,
 	}))
@@ -187,8 +191,19 @@ func (d *JobDispatcher) BeforeJob(fn func(j *Job) error, workerNames ...string) 
 	} else {
 		for _, w := range d.workers {
 			for _, name := range workerNames {
-				if w.GetName() == name {
-					w.BeforeJob(fn)
+				scope := strings.Split(name, ".")
+				if w.GetName() == scope[0] {
+					if len(scope) >= 2 {
+						w.BeforeJob(fn, scope[1])
+					} else {
+						w.BeforeJob(fn, ".")
+					}
+				} else if scope[0] == "*" {
+					if len(scope) >= 2 {
+						w.BeforeJob(fn, scope[1])
+					} else {
+						w.BeforeJob(fn, ".")
+					}
 				}
 			}
 		}
@@ -204,8 +219,19 @@ func (d *JobDispatcher) AfterJob(fn func(j *Job, err error) error, workerNames .
 	} else {
 		for _, w := range d.workers {
 			for _, name := range workerNames {
-				if w.GetName() == name {
-					w.AfterJob(fn)
+				scope := strings.Split(name, ".")
+				if w.GetName() == scope[0] {
+					if len(scope) >= 2 {
+						w.AfterJob(fn, scope[1])
+					} else {
+						w.AfterJob(fn)
+					}
+				} else if scope[0] == "*" {
+					if len(scope) >= 2 {
+						w.AfterJob(fn, scope[1])
+					} else {
+						w.AfterJob(fn)
+					}
 				}
 			}
 		}
@@ -213,23 +239,31 @@ func (d *JobDispatcher) AfterJob(fn func(j *Job, err error) error, workerNames .
 }
 
 func (d *JobDispatcher) OnDispatch(fn func(j *Job) error, workerNames ...string) {
-	var workers []Worker
-
 	if len(workerNames) == 0 {
-		workers = d.workers
+		for _, w := range d.workers {
+			w.OnAddJob(fn)
+		}
 	} else {
 		for _, w := range d.workers {
 			for _, wn := range workerNames {
-				if wn == w.GetName() {
-					workers = append(workers, w)
+				scope := strings.Split(wn, ".")
+				if w.GetName() == scope[0] {
+					if len(scope) >= 2 {
+						w.OnAddJob(fn, scope[1])
+					} else {
+						w.OnAddJob(fn)
+					}
+				} else if scope[0] == "*" {
+					if len(scope) >= 2 {
+						w.OnAddJob(fn, scope[1])
+					} else {
+						w.OnAddJob(fn)
+					}
 				}
 			}
 		}
 	}
 
-	for _, w := range workers {
-		w.OnAddJob(fn)
-	}
 }
 
 // Dispatch job을 생성하고 worker에 등록하여 수행할 준비를 한다.

@@ -140,6 +140,10 @@ func (q *JobQueue) Jobs() []Job {
 	return q.queue
 }
 
+type BeforeJob = func(j *Job) error
+type AfterJob = func(j *Job, err error) error
+type OnAddJob = func(j *Job) error
+
 type Worker interface {
 	GetName() string
 	Run()
@@ -153,9 +157,9 @@ type Worker interface {
 	MaxPool() int
 	Pool() int
 	Queue() Queue
-	BeforeJob(fn func(j *Job) error)
-	AfterJob(fn func(j *Job, err error) error)
-	OnAddJob(fn func(j *Job) error)
+	BeforeJob(fn func(j *Job) error, scope ...string)
+	AfterJob(fn func(j *Job, err error) error, scope ...string)
+	OnAddJob(fn func(j *Job) error, scope ...string)
 }
 
 type JobWorker struct {
@@ -170,9 +174,9 @@ type JobWorker struct {
 	pool        int
 	isRunning   bool
 	isPending   bool
-	beforeJob   func(j *Job) error
-	afterJob    func(j *Job, err error) error
-	onAddJob    func(j *Job) error
+	beforeJob   map[string]BeforeJob
+	afterJob    map[string]AfterJob
+	onAddJob    map[string]OnAddJob
 	redisClient *redis.Client
 	delay       time.Duration
 	logger      Logger
@@ -183,8 +187,9 @@ type Config struct {
 	Redis       func() *redis.Client
 	MaxJobCount int
 	MaxPool     int
-	BeforeJob   func(j *Job) error
-	AfterJob    func(j *Job, err error) error
+	BeforeJob   BeforeJob
+	AfterJob    AfterJob
+	OnAddJob    OnAddJob
 	Delay       time.Duration
 	Logger      Logger
 }
@@ -199,8 +204,9 @@ func NewWorker(cfg Config) Worker {
 		maxJobCount: cfg.MaxJobCount,
 		maxPool:     cfg.MaxPool,
 		pool:        0,
-		beforeJob:   cfg.BeforeJob,
-		afterJob:    cfg.AfterJob,
+		beforeJob:   map[string]BeforeJob{".": cfg.BeforeJob},
+		afterJob:    map[string]AfterJob{".": cfg.AfterJob},
+		onAddJob:    map[string]OnAddJob{".": cfg.OnAddJob},
 		redisClient: cfg.Redis(),
 		delay:       cfg.Delay,
 		logger:      cfg.Logger,
@@ -252,7 +258,7 @@ func (w *JobWorker) work(job *Job) {
 		}
 
 		if w.beforeJob != nil {
-			bErr := w.beforeJob(job)
+			bErr := w.handleBeforeJob(job)
 			if bErr != nil {
 				log.Print(bErr)
 				if w.logger != nil {
@@ -272,7 +278,7 @@ func (w *JobWorker) work(job *Job) {
 		w.saveJob(key, *job)
 
 		if w.afterJob != nil {
-			aErr := w.afterJob(job, err)
+			aErr := w.handleAfterJob(job, err)
 			if aErr != nil {
 				log.Print(aErr)
 				if w.logger != nil {
@@ -333,22 +339,22 @@ func (w *JobWorker) routine() {
 			}
 		}
 
-		jobChan, err := w.queue.Dequeue()
-		if err != nil {
-			log.Println(err)
-		} else {
-			w.jobChan <- jobChan
+		var jobChan *Job = nil
+		if canWork {
+			j, err := w.queue.Dequeue()
+			if err != nil {
+				log.Print(err)
+			}
+
+			jobChan = j
 		}
+
+		w.jobChan <- jobChan
 
 		select {
 		case job := <-w.jobChan:
-			if canWork {
+			if job != nil {
 				w.work(job)
-			} else {
-				err = w.queue.Enqueue(*job)
-				if err != nil {
-					log.Println(err)
-				}
 			}
 		case <-w.quitChan:
 			log.Printf("worker %s stopping\n", w.Name)
@@ -423,7 +429,7 @@ func (w *JobWorker) Stop() {
 
 func (w *JobWorker) AddJob(job Job) error {
 	if w.onAddJob != nil {
-		err := w.onAddJob(&job)
+		err := w.handleAddJob(&job)
 		if err != nil {
 			log.Print(err)
 			if w.logger != nil {
@@ -474,14 +480,107 @@ func (w *JobWorker) Queue() Queue {
 	return w.queue
 }
 
-func (w *JobWorker) OnAddJob(fn func(j *Job) error) {
-	w.onAddJob = fn
+func (w *JobWorker) OnAddJob(fn func(j *Job) error, scope ...string) {
+	if len(scope) == 0 {
+		w.onAddJob["."] = fn
+		return
+	}
+
+	for _, s := range scope {
+		w.onAddJob[s] = fn
+	}
 }
 
-func (w *JobWorker) BeforeJob(fn func(j *Job) error) {
-	w.beforeJob = fn
+func (w *JobWorker) handleAddJob(j *Job) error {
+	isExec := false
+	for jobId, fn := range w.onAddJob {
+		if jobId == j.JobId {
+			err := fn(j)
+			if err != nil {
+				return err
+			}
+			isExec = true
+		}
+	}
+
+	if !isExec {
+		if w.onAddJob["."] != nil {
+			err := w.onAddJob["."](j)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
-func (w *JobWorker) AfterJob(fn func(j *Job, err error) error) {
-	w.afterJob = fn
+func (w *JobWorker) BeforeJob(fn func(j *Job) error, scope ...string) {
+	if len(scope) == 0 {
+		w.beforeJob["."] = fn
+		return
+	}
+
+	for _, s := range scope {
+		w.beforeJob[s] = fn
+	}
+}
+
+func (w *JobWorker) handleBeforeJob(j *Job) error {
+	isExec := false
+	for jobId, fn := range w.beforeJob {
+		if jobId == j.JobId {
+			err := fn(j)
+			if err != nil {
+				return err
+			}
+			isExec = true
+		}
+	}
+
+	if !isExec {
+		if w.beforeJob["."] != nil {
+			err := w.beforeJob["."](j)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (w *JobWorker) AfterJob(fn func(j *Job, err error) error, scope ...string) {
+	if len(scope) == 0 {
+		w.afterJob["."] = fn
+		return
+	}
+
+	for _, s := range scope {
+		w.afterJob[s] = fn
+	}
+}
+
+func (w *JobWorker) handleAfterJob(j *Job, err error) error {
+	isExec := false
+	for jobId, fn := range w.afterJob {
+		if jobId == j.JobId {
+			err := fn(j, err)
+			if err != nil {
+				return err
+			}
+			isExec = true
+		}
+	}
+
+	if !isExec {
+		if w.afterJob["."] != nil {
+			err := w.afterJob["."](j, err)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
