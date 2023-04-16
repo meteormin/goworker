@@ -99,7 +99,6 @@ func NewDispatcher(opt DispatcherOption) Dispatcher {
 			o.Name,
 			opt.Redis,
 			o.MaxJobCount,
-			o.MaxPool,
 			o.BeforeJob,
 			o.AfterJob,
 			o.OnAddJob,
@@ -129,7 +128,6 @@ func (d *JobDispatcher) AddWorker(option Option) {
 		option.Name,
 		d.redis,
 		option.MaxJobCount,
-		option.MaxPool,
 		option.BeforeJob,
 		option.AfterJob,
 		option.OnAddJob,
@@ -369,8 +367,6 @@ func (d *JobDispatcher) Status() *StatusInfo {
 			IsPending:   w.IsPending(),
 			JobCount:    w.JobCount(),
 			MaxJobCount: w.MaxJobCount(),
-			MaxPool:     w.MaxPool(),
-			Pool:        w.Pool(),
 			Queue:       w.Queue().Jobs(),
 		}
 

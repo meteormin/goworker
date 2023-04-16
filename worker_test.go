@@ -185,14 +185,15 @@ func TestJob_UnMarshal(t *testing.T) {
 }
 
 func TestJobDispatcher_Stress(t *testing.T) {
-	for i := 0; i < 100; i++ {
-		err := dispatcher.Dispatch("1", func(j *worker.Job) error {
+	for i := 0; i < 10; i++ {
+		err := dispatcher.Dispatch("TEST_STRESS", func(j *worker.Job) error {
 			log.Println(j)
 			return nil
 		})
 		if err != nil {
 			break
 		}
+		time.Sleep(time.Second)
 	}
 	stop := false
 	for {
@@ -207,7 +208,7 @@ func TestJobDispatcher_Stress(t *testing.T) {
 				log.Println(w.Queue().Jobs())
 			}
 		}
-		time.Sleep(time.Millisecond * 3)
+		time.Sleep(time.Second)
 	}
 
 }

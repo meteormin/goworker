@@ -155,8 +155,6 @@ type Worker interface {
 	IsPending() bool
 	MaxJobCount() int
 	JobCount() int
-	MaxPool() int
-	Pool() int
 	Queue() Queue
 	BeforeJob(fn func(j *Job) error, scope ...string)
 	AfterJob(fn func(j *Job, err error) error, scope ...string)
@@ -171,8 +169,6 @@ type JobWorker struct {
 	quitChan    chan bool
 	redis       func() *redis.Client
 	maxJobCount int
-	maxPool     int
-	pool        int
 	isRunning   bool
 	isPending   bool
 	beforeJob   map[string]BeforeJob
@@ -187,7 +183,6 @@ type Config struct {
 	Name        string
 	Redis       func() *redis.Client
 	MaxJobCount int
-	MaxPool     int
 	BeforeJob   BeforeJob
 	AfterJob    AfterJob
 	OnAddJob    OnAddJob
@@ -204,8 +199,6 @@ func NewWorker(cfg Config) Worker {
 		quitChan:    make(chan bool),
 		redis:       cfg.Redis,
 		maxJobCount: cfg.MaxJobCount,
-		maxPool:     cfg.MaxPool,
-		pool:        0,
 		beforeJob:   map[string]BeforeJob{".": cfg.BeforeJob},
 		afterJob:    map[string]AfterJob{".": cfg.AfterJob},
 		onAddJob:    map[string]OnAddJob{".": cfg.OnAddJob},
@@ -246,64 +239,67 @@ func (w *JobWorker) getJob(key string) (*Job, error) {
 	}
 }
 
+func (w *JobWorker) delJob(key string) {
+	_, err := w.redisClient.Del(ctx, key).Result()
+	if err != nil {
+		panic(err)
+	}
+}
+
 func (w *JobWorker) work(job *Job) {
 	key := fmt.Sprintf("%s.%s", w.Name, job.JobId)
-	w.redisClient = w.redis()
 	job.Status = PROGRESS
 	w.saveJob(key, *job)
-	w.pool++
 
-	go func() {
-		log.Printf("start job: %s.%s", job.WorkerName, job.JobId)
-		if w.logger != nil {
-			w.logger.Infof("start job: %s.%s", job.WorkerName, job.JobId)
-		}
+	log.Printf("start job: %s.%s", job.WorkerName, job.JobId)
+	if w.logger != nil {
+		w.logger.Infof("start job: %s.%s", job.WorkerName, job.JobId)
+	}
 
-		if w.beforeJob != nil {
-			bErr := w.handleBeforeJob(job)
-			if bErr != nil {
-				log.Print(bErr)
-				if w.logger != nil {
-					w.logger.Error(bErr)
-				}
-			}
-		}
-
-		err := job.Closure(job)
-		if err != nil {
-			job.Status = FAIL
-		} else {
-			job.Status = SUCCESS
-		}
-
-		job.UpdatedAt = time.Now()
-		w.saveJob(key, *job)
-
-		if w.afterJob != nil {
-			aErr := w.handleAfterJob(job, err)
-			if aErr != nil {
-				log.Print(aErr)
-				if w.logger != nil {
-					w.logger.Error(aErr)
-				}
-			}
-		}
-
-		jsonJob, err := job.Marshal()
-		if err != nil {
-			log.Print(err)
+	if w.beforeJob != nil {
+		bErr := w.handleBeforeJob(job)
+		if bErr != nil {
+			log.Print(bErr)
 			if w.logger != nil {
-				w.logger.Error(err)
+				w.logger.Error(bErr)
 			}
 		}
+	}
 
-		log.Printf("end job: %s", jsonJob)
-		if w.logger != nil {
-			w.logger.Infof("end job: %s", jsonJob)
+	err := job.Closure(job)
+	if err != nil {
+		job.Status = FAIL
+	} else {
+		job.Status = SUCCESS
+	}
+
+	job.UpdatedAt = time.Now()
+	w.saveJob(key, *job)
+
+	if w.afterJob != nil {
+		aErr := w.handleAfterJob(job, err)
+		if aErr != nil {
+			log.Print(aErr)
+			if w.logger != nil {
+				w.logger.Error(aErr)
+			}
 		}
+	}
 
-		w.pool--
-	}()
+	jsonJob, err := job.Marshal()
+	if err != nil {
+		log.Print(err)
+		if w.logger != nil {
+			w.logger.Error(err)
+		}
+	}
+
+	log.Printf("end job: %s", jsonJob)
+	if w.logger != nil {
+		w.logger.Infof("end job: %s", jsonJob)
+	}
+
+	w.delJob(key)
 }
 
 func (w *JobWorker) routine() {
@@ -315,14 +311,10 @@ func (w *JobWorker) routine() {
 	for {
 		canWork := true
 		w.redisClient = w.redis()
+
 		next := w.queue.Next()
 		if next == nil {
 			canWork = false
-		}
-
-		if w.pool >= w.maxPool {
-			canWork = false
-			log.Printf("%s worker pool is full", w.Name)
 		}
 
 		if canWork {
@@ -376,7 +368,6 @@ func (w *JobWorker) routine() {
 			return
 		default:
 		}
-
 		time.Sleep(w.delay)
 	}
 }
@@ -452,6 +443,9 @@ func (w *JobWorker) Stop() {
 	if w.isPending {
 		w.Resume()
 	}
+	w.redisClient = w.redis()
+
+	w.redisClient.Del(ctx, w.Name)
 }
 
 func (w *JobWorker) AddJob(job Job) error {
@@ -492,14 +486,6 @@ func (w *JobWorker) MaxJobCount() int {
 
 func (w *JobWorker) JobCount() int {
 	return w.queue.Count()
-}
-
-func (w *JobWorker) MaxPool() int {
-	return w.maxPool
-}
-
-func (w *JobWorker) Pool() int {
-	return w.pool
 }
 
 func (w *JobWorker) Queue() Queue {
