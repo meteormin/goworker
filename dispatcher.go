@@ -55,7 +55,6 @@ type JobDispatcher struct {
 type Option struct {
 	Name        string
 	MaxJobCount int
-	MaxPool     int
 	BeforeJob   func(j *Job) error
 	AfterJob    func(j *Job, err error) error
 	OnAddJob    func(j *Job) error
@@ -74,7 +73,6 @@ var defaultWorkerOption = []Option{
 	{
 		Name:        DefaultWorker,
 		MaxJobCount: 10,
-		MaxPool:     1,
 	},
 }
 
@@ -89,10 +87,6 @@ func NewDispatcher(opt DispatcherOption) Dispatcher {
 	for _, o := range opt.WorkerOptions {
 		if o.MaxJobCount == 0 {
 			o.MaxJobCount = 10
-		}
-
-		if o.MaxPool == 0 {
-			o.MaxPool = 1
 		}
 
 		workers = append(workers, NewWorker(Config{
@@ -118,10 +112,6 @@ func NewDispatcher(opt DispatcherOption) Dispatcher {
 func (d *JobDispatcher) AddWorker(option Option) {
 	if option.MaxJobCount == 0 {
 		option.MaxJobCount = 10
-	}
-
-	if option.MaxPool == 0 {
-		option.MaxPool = 1
 	}
 
 	d.workers = append(d.workers, NewWorker(Config{
