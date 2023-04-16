@@ -322,8 +322,6 @@ type StatusWorkerInfo struct {
 	IsPending   bool   `json:"is_pending"`
 	JobCount    int    `json:"job_count"`
 	MaxJobCount int    `json:"max_job_count"`
-	MaxPool     int    `json:"max_pool"`
-	Pool        int    `json:"pool"`
 	Queue       []Job  `json:"queue"`
 }
 
