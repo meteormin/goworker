@@ -337,16 +337,17 @@ func (w *JobWorker) routine() {
 		if canWork {
 			j, err := w.queue.Dequeue()
 			if err != nil {
-				log.Print(err)
+				canWork = false
+				log.Println(err)
+			} else {
+				jobChan = j
 			}
-
-			jobChan = j
 		}
 
-		if next == nil && w.isRunning && !w.isPending {
-			w.Pending()
-		} else if w.isRunning && !w.isPending {
+		if canWork {
 			w.jobChan <- jobChan
+		} else if w.isRunning && !w.isPending {
+			w.Pending()
 		}
 
 		select {
@@ -367,6 +368,7 @@ func (w *JobWorker) routine() {
 			}
 			return
 		default:
+			log.Printf("worker %s selected default\n", w.Name)
 		}
 		time.Sleep(w.delay)
 	}
