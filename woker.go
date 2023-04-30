@@ -372,10 +372,6 @@ func (w *JobWorker) routine() {
 	}
 }
 
-func (w *JobWorker) resumeRoutine() {
-	w.isPending = false
-}
-
 func (w *JobWorker) pendingRoutine() {
 	w.isPending = true
 	w.pendChan <- true
@@ -413,7 +409,7 @@ func (w *JobWorker) Resume() {
 		return
 	}
 
-	go w.resumeRoutine()
+	w.isPending = false
 	go w.routine()
 }
 

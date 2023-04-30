@@ -2,6 +2,7 @@ package goworker_test
 
 import (
 	"context"
+	"fmt"
 	worker "github.com/miniyus/goworker"
 	"github.com/redis/go-redis/v9"
 	"log"
@@ -151,7 +152,6 @@ func TestJobDispatcher_AddWorker(t *testing.T) {
 	dispatcher.AddWorker(worker.Option{
 		Name:        "TEST_WORKER",
 		MaxJobCount: 10,
-		MaxPool:     10,
 		// 워커를 기준으로 훅을 등록할 수 있다.
 		// 지정된 훅은 워커의 모든 작업에 포함된다.
 		BeforeJob: func(j *worker.Job) error {
@@ -185,9 +185,9 @@ func TestJob_UnMarshal(t *testing.T) {
 }
 
 func TestJobDispatcher_Stress(t *testing.T) {
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 20; i++ {
 		err := dispatcher.Dispatch("TEST_STRESS", func(j *worker.Job) error {
-			log.Println(j)
+			log.Println(fmt.Sprintf("%d: %s", i, j.Status))
 			return nil
 		})
 		if err != nil {
@@ -213,6 +213,25 @@ func TestJobDispatcher_Stress(t *testing.T) {
 
 }
 
+func TestJobDispatcher_Pending(t *testing.T) {
+	dispatcher.Status().Print()
+
+	time.Sleep(time.Second * 3)
+
+	dispatcher.Status().Print()
+
+	err := dispatcher.Dispatch("Resume", func(j *worker.Job) error {
+		log.Print(j)
+		return nil
+	})
+	if err != nil {
+		t.Error(err)
+	}
+
+	time.Sleep(time.Second * 3)
+
+}
+
 func TestJobDispatcher_Stop(t *testing.T) {
 	dispatcher.Status().Print()
 	time.Sleep(time.Second * 10)
@@ -233,5 +252,6 @@ func TestJobDispatcher_Stop(t *testing.T) {
 		time.Sleep(time.Second)
 	}
 	time.Sleep(time.Second * 3)
+	dispatcher.Status().Print()
 	log.Println("the end...")
 }
