@@ -370,6 +370,15 @@ func (w *JobWorker) routine() {
 		default:
 			log.Printf("worker %s selected default\n", w.Name)
 		}
+
+		err := w.redisClient.Close()
+		if err != nil {
+			log.Println(err)
+			if w.logger != nil {
+				w.logger.Error(err)
+			}
+		}
+
 		time.Sleep(w.delay)
 	}
 }
