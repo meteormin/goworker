@@ -347,7 +347,12 @@ func (w *JobWorker) routine() {
 		if canWork {
 			w.jobChan <- jobChan
 		} else if w.isRunning && !w.isPending {
-			w.Pending()
+			w.isPending = true
+			log.Printf("worker %s auto pending\n", w.Name)
+			if w.logger != nil {
+				w.logger.Infof("worker %s auto pending\n", w.Name)
+			}
+			return
 		}
 
 		select {
