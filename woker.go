@@ -238,7 +238,7 @@ func (w *JobWorker) getJob(key string) (*Job, error) {
 		if job, ok := inMemoryMap[key]; ok {
 			return job, nil
 		}
-		return nil, errors.New("can't find job")
+		return nil, nil
 	}
 
 	val, err := w.redisClient.Get(ctx, key).Result()
