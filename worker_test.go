@@ -14,7 +14,7 @@ import (
 var opt = worker.Option{
 	Name:        "default",       // 워커 이름
 	MaxJobCount: 10,              // 워커에 담을 수 있는 작업 개수
-	Delay:       time.Second * 3, // 작업 수행 후 다음 작업까지 딜레이 설정
+	Delay:       time.Second * 1, // 작업 수행 후 다음 작업까지 딜레이 설정
 }
 
 // dispatcher option for test
@@ -23,18 +23,21 @@ var dispatcherOpt = worker.DispatcherOption{
 		opt,
 	},
 	// go-redis 세션이 끊어지는 이슈가 존재하여 현재는 redis 클라이언트를 생성해 줄 수 있는 함수로 받고 있다.
-	Redis: func() *redis.Client {
-		return redis.NewClient(&redis.Options{
-			Addr:     "localhost:6379",
-			Password: "",
-			DB:       0,
-		})
-	},
+	//Redis: func() *redis.Client {
+	//	return redis.NewClient(&redis.Options{
+	//		Addr:     "localhost:6379",
+	//		Password: "",
+	//		DB:       0,
+	//	})
+	//},
+	Redis: nil,
 }
 
 var dispatcher = worker.NewDispatcher(dispatcherOpt)
 
-var redisClient = dispatcherOpt.Redis()
+// use redis
+// var redisClient = dispatcherOpt.Redis()
+var redisClient *redis.Client
 
 func TestJobDispatcher(t *testing.T) {
 	dispatcher.Run("default") // 입력된 워커만 실행
@@ -184,16 +187,22 @@ func TestJob_UnMarshal(t *testing.T) {
 	log.Print(job)
 }
 
+type StressTestStruct struct {
+	Index  int
+	Status worker.JobStatus
+}
+
 func TestJobDispatcher_Stress(t *testing.T) {
 	for i := 0; i < 20; i++ {
+		st := &StressTestStruct{Index: i}
 		err := dispatcher.Dispatch("TEST_STRESS", func(j *worker.Job) error {
-			log.Println(fmt.Sprintf("%d: %s", i, j.Status))
+			st.Status = j.Status
+			log.Println(fmt.Sprintf("%d: %s", st.Index, st.Status))
 			return nil
 		})
 		if err != nil {
 			break
 		}
-		time.Sleep(time.Second)
 	}
 	stop := false
 	for {

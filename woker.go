@@ -15,6 +15,8 @@ import (
 // success, wait, fail, progress
 type JobStatus string
 
+type InMemoryMap map[string]*Job
+
 const (
 	SUCCESS  JobStatus = "success"
 	FAIL     JobStatus = "fail"
@@ -24,6 +26,7 @@ const (
 
 // Redis context
 var ctx = context.Background()
+var inMemoryMap = InMemoryMap{}
 
 const DefaultWorker = "default"
 
@@ -191,6 +194,11 @@ type Config struct {
 }
 
 func NewWorker(cfg Config) Worker {
+	var redisClient *redis.Client
+	if cfg.Redis != nil {
+		redisClient = cfg.Redis()
+	}
+
 	return &JobWorker{
 		Name:        cfg.Name,
 		queue:       NewQueue(cfg.MaxJobCount),
@@ -202,13 +210,18 @@ func NewWorker(cfg Config) Worker {
 		beforeJob:   map[string]BeforeJob{".": cfg.BeforeJob},
 		afterJob:    map[string]AfterJob{".": cfg.AfterJob},
 		onAddJob:    map[string]OnAddJob{".": cfg.OnAddJob},
-		redisClient: cfg.Redis(),
+		redisClient: redisClient,
 		delay:       cfg.Delay,
 		logger:      cfg.Logger,
 	}
 }
 
 func (w *JobWorker) saveJob(key string, job Job) {
+	if w.redisClient == nil {
+		inMemoryMap[key] = &job
+		return
+	}
+
 	jsonJob, err := job.Marshal()
 	if err != nil {
 		panic(err)
@@ -221,6 +234,13 @@ func (w *JobWorker) saveJob(key string, job Job) {
 }
 
 func (w *JobWorker) getJob(key string) (*Job, error) {
+	if w.redisClient == nil {
+		if job, ok := inMemoryMap[key]; ok {
+			return job, nil
+		}
+		return nil, errors.New("can't find job")
+	}
+
 	val, err := w.redisClient.Get(ctx, key).Result()
 
 	if err == redis.Nil {
@@ -240,6 +260,11 @@ func (w *JobWorker) getJob(key string) (*Job, error) {
 }
 
 func (w *JobWorker) delJob(key string) {
+	if w.redisClient == nil {
+		delete(inMemoryMap, key)
+		return
+	}
+
 	_, err := w.redisClient.Del(ctx, key).Result()
 	if err != nil {
 		panic(err)
@@ -249,6 +274,7 @@ func (w *JobWorker) delJob(key string) {
 func (w *JobWorker) work(job *Job) {
 	key := fmt.Sprintf("%s.%s", w.Name, job.JobId)
 	job.Status = PROGRESS
+
 	w.saveJob(key, *job)
 
 	log.Printf("start job: %s.%s", job.WorkerName, job.JobId)
@@ -310,7 +336,9 @@ func (w *JobWorker) routine() {
 
 	for {
 		canWork := true
-		w.redisClient = w.redis()
+		if w.redis != nil {
+			w.redisClient = w.redis()
+		}
 
 		next := w.queue.Next()
 		if next == nil {
@@ -376,11 +404,13 @@ func (w *JobWorker) routine() {
 			log.Printf("worker %s selected default\n", w.Name)
 		}
 
-		err := w.redisClient.Close()
-		if err != nil {
-			log.Println(err)
-			if w.logger != nil {
-				w.logger.Error(err)
+		if w.redis != nil {
+			err := w.redisClient.Close()
+			if err != nil {
+				log.Println(err)
+				if w.logger != nil {
+					w.logger.Error(err)
+				}
 			}
 		}
 
@@ -455,9 +485,12 @@ func (w *JobWorker) Stop() {
 	if w.isPending {
 		w.Resume()
 	}
-	w.redisClient = w.redis()
 
-	w.redisClient.Del(ctx, w.Name)
+	if w.redis != nil {
+		w.redisClient = w.redis()
+
+		w.redisClient.Del(ctx, w.Name)
+	}
 }
 
 func (w *JobWorker) AddJob(job Job) error {
