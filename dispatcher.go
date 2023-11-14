@@ -9,10 +9,10 @@ import (
 	"time"
 )
 
+// Logger interface
 type Logger interface {
 	Info(args ...interface{})
-
-	//Infof implements message with Sprint, Sprintf, or neither.
+	// Infof implements message with Sprint, Sprintf, or neither.
 	Infof(template string, args ...interface{})
 	Infoln(args ...interface{})
 	Error(args ...interface{})
@@ -29,18 +29,96 @@ type Logger interface {
 // Dispatcher dispatcher
 // manage workers
 type Dispatcher interface {
+	// Dispatch dispatches the job identified by the given jobId
+	// to the closure function for processing.
+	//
+	// Parameters:
+	// - jobId: The identifier of the job to be dispatched.
+	// - closure: A function that takes a pointer to a Job
+	//            and returns an error.
+	//
+	// Returns:
+	// - An error if there was a problem dispatching the job.
 	Dispatch(jobId string, closure func(j *Job) error) error
+
+	// Run is a function that takes in an arbitrary number of string arguments and does something.
+	//
+	// It does not return anything.
 	Run(names ...string)
+
+	// Stop stops the specified names.
+	//
+	// names: The names to stop.
 	Stop(names ...string)
+
+	// SelectWorker selects a worker from the dispatcher based on the given name.
+	//
+	// name: the name of the worker to select.
+	// returns: the selected worker as a Dispatcher.
 	SelectWorker(name string) Dispatcher
+
+	// GetWorkers returns an array of Worker objects.
+	//
+	// It returns an array of Worker objects.
 	GetWorkers() []Worker
+
+	// GetRedis returns a function that returns a pointer to a redis.Client.
+	//
+	// Returns a function that returns a pointer to a redis.Client.
 	GetRedis() func() *redis.Client
+
+	// AddWorker adds a worker with the specified option.
+	//
+	// option: The option for the worker.
 	AddWorker(option Option)
+
+	// RemoveWorker removes a worker from the system.
+	//
+	// Parameters:
+	// - nam: the name of the worker to be removed.
 	RemoveWorker(nam string)
+
+	// Status returns the status information.
+	//
+	// No parameters.
+	// Returns a pointer to a StatusInfo object.
 	Status() *StatusInfo
+
+	// BeforeJob executes the given function before a job starts.
+	//
+	// The parameter `fn` is a function that takes a pointer to a `Job` structure
+	// and returns an error. It represents the function that will be executed
+	// before a job starts.
+	//
+	// The parameter `workerNames` is a variadic parameter of type string. It
+	// represents the names of the workers that the job will be executed on.
+	//
+	// This function does not return anything.
 	BeforeJob(fn func(j *Job) error, workerNames ...string)
+
+	// AfterJob executes the given function after a job has been completed.
+	//
+	// The function takes a callback function as its first parameter, which will be
+	// called with a pointer to the completed job and any error that occurred during
+	// the job execution. The callback function should return an error.
+	//
+	// The workerNames parameter is variadic and allows specifying the names of the
+	// workers that the callback function should be executed after. If no worker names
+	// are provided, the callback function will be executed after any worker completes
+	// a job.
 	AfterJob(fn func(j *Job, err error) error, workerNames ...string)
+
+	// OnDispatch is a function that performs a specified function on each job in a worker queue.
+	//
+	// fn: The function to be performed on each job.
+	// workerNames: The names of the workers on which the function should be performed.
+	//             If no worker names are provided, the function will be performed on all workers.
 	OnDispatch(fn func(j *Job) error, workerNames ...string)
+
+	// IsRunning returns a boolean value indicating whether the function is running or not.
+	//
+	// Returns a boolean value.
+	IsRunning() bool
 }
 
 // JobDispatcher implements Dispatcher
@@ -170,7 +248,11 @@ func (d *JobDispatcher) SelectWorker(name string) Dispatcher {
 	return d
 }
 
-// BeforeJob 해당 Job 수행 전 실행할 클로저 설정
+// BeforeJob is a method of the JobDispatcher struct that is used to execute a function before a job is dispatched to the workers.
+//
+// The function accepts a function `fn` that takes a pointer to a Job struct and returns an error. It also accepts optional parameter `workerNames` which is a variadic slice of strings representing the names of the workers. If no worker names are provided, the function will be executed before the job is dispatched to all workers. If worker names are provided, the function will be executed before the job is dispatched to the specified workers.
+//
+// The function does not return any value.
 func (d *JobDispatcher) BeforeJob(fn func(j *Job) error, workerNames ...string) {
 	if len(workerNames) == 0 {
 		for _, w := range d.workers {
@@ -198,7 +280,13 @@ func (d *JobDispatcher) BeforeJob(fn func(j *Job) error, workerNames ...string) 
 	}
 }
 
-// AfterJob 해당 Job 수행 후 실행할 클로저 설정, error가 발생할 수도 있기 때문에 error로 함께 넘겨 받는다.
+// AfterJob dispatches a function to be executed after a job has completed.
+//
+// The first parameter `fn` is a function that takes a `*Job` and an `error` as parameters and returns an `error`.
+// The remaining parameters `workerNames` are variadic and represent the names of the workers to which the function should be dispatched.
+// The function can be dispatched to multiple workers by passing multiple worker names.
+//
+// This function does not return any values.
 func (d *JobDispatcher) AfterJob(fn func(j *Job, err error) error, workerNames ...string) {
 	if len(workerNames) == 0 {
 		for _, w := range d.workers {
@@ -226,6 +314,11 @@ func (d *JobDispatcher) AfterJob(fn func(j *Job, err error) error, workerNames .
 	}
 }
 
+// OnDispatch dispatches a job to the specified worker(s).
+//
+// The function takes a function `fn` as its parameter, which represents the job to be dispatched. The function should accept a pointer to a `Job` and return an error.
+// Additional parameters `workerNames` are optional and represent the names of the workers to which the job should be dispatched. If no worker names are provided, the job will be dispatched to all workers.
+// The function does not return anything.
 func (d *JobDispatcher) OnDispatch(fn func(j *Job) error, workerNames ...string) {
 	if len(workerNames) == 0 {
 		for _, w := range d.workers {
@@ -254,7 +347,12 @@ func (d *JobDispatcher) OnDispatch(fn func(j *Job) error, workerNames ...string)
 
 }
 
-// Dispatch job을 생성하고 worker에 등록하여 수행할 준비를 한다.
+// Dispatch dispatches a job to the JobDispatcher.
+//
+// It takes a jobId string and a closure function as parameters.
+// The closure function is a function that takes a Job pointer as its parameter and returns an error.
+// The Dispatch function adds the job to the worker and returns any error that occurred during the process.
+// It returns an error if the worker is nil or if there was an error in adding the job to the worker.
 func (d *JobDispatcher) Dispatch(jobId string, closure func(j *Job) error) error {
 	if d.worker == nil {
 		for _, w := range d.workers {
@@ -272,8 +370,12 @@ func (d *JobDispatcher) Dispatch(jobId string, closure func(j *Job) error) error
 	return nil
 }
 
-// Run dispatcher의 worker들을 가동 시켜 대기열 루틴을 돌 수 있게 실행,
-// 특정 워커들만 수행하고 싶을 경우 workerNames 파라미터를 이용
+// Run dispatches jobs to the specified workers.
+//
+// It accepts a variadic parameter `workerNames` which specifies the names of the workers to dispatch the jobs to.
+// If `workerNames` is empty, all workers in the `JobDispatcher` will be used.
+//
+// This function does not return any values.
 func (d *JobDispatcher) Run(workerNames ...string) {
 	workers := make([]Worker, 0)
 
@@ -294,8 +396,13 @@ func (d *JobDispatcher) Run(workerNames ...string) {
 	}
 }
 
-// Stop 모든 worker의 작업을 종료한다.
-// 일부만 종료하고 싶을 경우 workerNames 파라미터를 이용
+// Stop stops the specified workers or all workers if no names are provided.
+//
+// The `workerNames` parameter is a variadic parameter that accepts a list of
+// strings representing the names of the workers to be stopped. If no names are
+// provided, all workers in the `JobDispatcher` will be stopped.
+//
+// This function does not return any values.
 func (d *JobDispatcher) Stop(workerNames ...string) {
 	workers := make([]Worker, 0)
 
@@ -344,7 +451,10 @@ func (si *StatusInfo) Print() {
 	}
 }
 
-// Status 현재 worker들의 상태를 조회한다.
+// Status returns the status information of the JobDispatcher.
+//
+// This function does not have any parameters.
+// It returns a pointer to a StatusInfo struct.
 func (d *JobDispatcher) Status() *StatusInfo {
 
 	workers := make([]StatusWorkerInfo, 0)
@@ -365,4 +475,18 @@ func (d *JobDispatcher) Status() *StatusInfo {
 		Workers:     workers,
 		WorkerCount: len(workers),
 	}
+}
+
+// IsRunning checks if the job dispatcher is running.
+//
+// It iterates over the workers and checks if any of them is running.
+// Returns true if at least one worker is running, false otherwise.
+func (d *JobDispatcher) IsRunning() bool {
+	for _, worker := range d.workers {
+		if worker.IsRunning() {
+			return true
+		}
+	}
+
+	return false
 }
