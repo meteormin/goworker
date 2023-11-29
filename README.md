@@ -1,9 +1,10 @@
-# Golang Job Queue Worker With Redis
+# Golang Job Queue Worker
 
 ## 주요 기능
 
 1. 비동기 작업 큐
 2. Redis 연동을 통한 작업 완료, 실패, 대기 여부 파악 및 동시성 제어
+    - Redis 없이 Slice를 이용하여 처리 가능.
 3. 여러개의 워커를 이용한 병렬 처리
 4. 작업 전후 Hooking 제공
 
@@ -24,13 +25,13 @@
 ### 4. 작업 전, 후 Hooking 제공
 
 - OnDispatch() 메서드를 제공하여 작업이 dispatch 되었을 때 수행할 로직을 설정할 수 있습니다.
-  - OnDispatch() 메서드는 Job 구조체의 Status 필드가 "wait"일 때 수행됩니다.
+    - OnDispatch() 메서드는 Job 구조체의 Status 필드가 "wait"일 때 수행됩니다.
 - BeforeJob() 메서드를 제공하여 작업 전에 수행할 로직을 설정할 수 있습니다.
-  - BeforeJob() 메서드는 Job 구조체의 Status 필드가 "progress"일 때 수행됩니다.
+    - BeforeJob() 메서드는 Job 구조체의 Status 필드가 "progress"일 때 수행됩니다.
 - AfterJob() 메서드를 제공하여 작업 후에 수행할 로직을 설정할 수 있습니다.
-  - AfterJob() 메서드는 Job 구조체의 Status 필드가 "success" or "fail"일 떄 수행됩니다.
+    - AfterJob() 메서드는 Job 구조체의 Status 필드가 "success" or "fail"일 떄 수행됩니다.
 - ex) 워커 당 작업 수행 히스토리 DB 저장
 
 ## 사용법
 
-참고: [worker_test.go](./worker_test.go)
+참고: [worker_test.go](./woker_test.go)

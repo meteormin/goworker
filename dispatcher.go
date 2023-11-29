@@ -62,6 +62,15 @@ type Dispatcher interface {
 	// It returns an array of Worker objects.
 	GetWorkers() []Worker
 
+	// GetWorker returns a Worker based on the provided name.
+	//
+	// The name parameter specify the name of the worker to retrieve.
+	// It can accept one or more names as variadic arguments.
+	// If no name is provided, it returns the default worker.
+	//
+	// Returns the Worker object corresponding to the provided name.
+	GetWorker(name ...string) Worker
+
 	// GetRedis returns a function that returns a pointer to a redis.Client.
 	//
 	// Returns a function that returns a pointer to a redis.Client.
@@ -115,10 +124,22 @@ type Dispatcher interface {
 	//             If no worker names are provided, the function will be performed on all workers.
 	OnDispatch(fn func(j *Job) error, workerNames ...string)
 
-	// IsRunning returns a boolean value indicating whether the function is running or not.
+	// IsRunning checks if the given process name(s) is running.
 	//
-	// Returns a boolean value.
-	IsRunning() bool
+	// Parameters:
+	// - name: a variadic parameter that represents the name(s) of the process(es) to check.
+	//         If no name is provided, it returns the default worker.
+	//
+	// Returns:
+	// - bool: true if the process is running, false otherwise.
+	IsRunning(name ...string) bool
+
+	// IsPending checks if the given name are pending.
+	//
+	// It accepts one or more name as arguments.
+	// If no name is provided, it returns the default worker.
+	// Returns a boolean value indicating whether the names are pending or not.
+	IsPending(name ...string) bool
 }
 
 // JobDispatcher implements Dispatcher
@@ -226,6 +247,20 @@ func (d *JobDispatcher) GetRedis() func() *redis.Client {
 // GetWorkers get this dispatcher's workers
 func (d *JobDispatcher) GetWorkers() []Worker {
 	return d.workers
+}
+
+func (d *JobDispatcher) GetWorker(name ...string) Worker {
+	if len(name) == 0 {
+		return d.worker
+	}
+
+	for _, w := range d.workers {
+		if w.GetName() == name[0] {
+			return w
+		}
+	}
+
+	return d.worker
 }
 
 // SelectWorker select worker by worker name
@@ -477,11 +512,15 @@ func (d *JobDispatcher) Status() *StatusInfo {
 	}
 }
 
-// IsRunning checks if the job dispatcher is running.
+// IsRunning checks if any worker in the JobDispatcher is currently running.
 //
-// It iterates over the workers and checks if any of them is running.
-// Returns true if at least one worker is running, false otherwise.
-func (d *JobDispatcher) IsRunning() bool {
+// It takes a variable number of names as input parameters.
+// It returns a boolean indicating whether any worker is running.
+func (d *JobDispatcher) IsRunning(name ...string) bool {
+	if len(name) != 0 {
+		return d.GetWorker(name[0]).IsRunning()
+	}
+
 	for _, worker := range d.workers {
 		if worker.IsRunning() {
 			return true
@@ -489,4 +528,27 @@ func (d *JobDispatcher) IsRunning() bool {
 	}
 
 	return false
+}
+
+// IsPending checks if the job with the specified name is pending.
+//
+// If one or more names are provided, it checks if the worker with the
+// first name is pending. If no names are provided, it checks if all
+// workers are pending.
+//
+// Returns true if the job(s) is/are pending, false otherwise.
+func (d *JobDispatcher) IsPending(name ...string) bool {
+	if len(name) != 0 {
+		return d.GetWorker(name[0]).IsPending()
+	}
+
+	workerCount := len(d.workers)
+	pendingCount := 0
+	for _, worker := range d.workers {
+		if worker.IsPending() {
+			pendingCount++
+		}
+	}
+
+	return workerCount == pendingCount
 }
