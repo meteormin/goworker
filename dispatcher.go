@@ -3,11 +3,19 @@ package goworker
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/meteormin/gocache"
 	"github.com/redis/go-redis/v9"
 	"log"
+	"runtime"
 	"strings"
 	"time"
 )
+
+func init() {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	gocache.New(uint(m.TotalAlloc))
+}
 
 // Logger interface
 type Logger interface {
@@ -187,7 +195,6 @@ func NewDispatcher(opt DispatcherOption) Dispatcher {
 		if o.MaxJobCount == 0 {
 			o.MaxJobCount = 10
 		}
-
 		workers = append(workers, NewWorker(Config{
 			o.Name,
 			opt.Redis,

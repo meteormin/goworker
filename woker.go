@@ -6,13 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/meteormin/gocache"
 	"github.com/redis/go-redis/v9"
 	"log"
 	"time"
 )
-
-// InMemoryMap in memory job's storage
-type InMemoryMap map[string]*Job
 
 // JobStatus job's status
 // success, wait, fail, progress
@@ -27,9 +25,6 @@ const (
 
 // ctx  Redis context
 var ctx = context.Background()
-
-// InMemoryMap in memory job's storage variable
-var inMemoryMap = InMemoryMap{}
 
 // DefaultWorker default worker name
 const DefaultWorker = "default"
@@ -323,7 +318,10 @@ func NewWorker(cfg Config) Worker {
 // Return type: None.
 func (w *JobWorker) saveJob(key string, job Job) {
 	if w.redisClient == nil {
-		inMemoryMap[key] = &job
+		err := gocache.Set(key, 0, job)
+		if err != nil {
+			panic(err)
+		}
 		return
 	}
 
@@ -348,15 +346,14 @@ func (w *JobWorker) saveJob(key string, job Job) {
 // - error: any error that occurred during the retrieval process.
 func (w *JobWorker) getJob(key string) (*Job, error) {
 	if w.redisClient == nil {
-		if job, ok := inMemoryMap[key]; ok {
-			return job, nil
-		}
-		return nil, nil
+		var job *Job
+		gocache.Get(key, job)
+		return job, nil
 	}
 
 	val, err := w.redisClient.Get(ctx, key).Result()
 
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
@@ -377,7 +374,7 @@ func (w *JobWorker) getJob(key string) (*Job, error) {
 // The delJob function takes a key string as a parameter and deletes the job associated with that key. If the redisClient is not nil, it uses the redisClient to delete the job from the Redis server. Otherwise, it deletes the job from the inMemoryMap. The function does not return any value.
 func (w *JobWorker) delJob(key string) {
 	if w.redisClient == nil {
-		delete(inMemoryMap, key)
+		gocache.Delete(key)
 		return
 	}
 
